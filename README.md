@@ -1,106 +1,100 @@
 # prisma-cloud-twistcli-sandbox
-The workflow to use Prisma Cloud's twistcli sandbox and AWS EC2 Spot Instances represents a modern, cloud-native approach to automated malware analysis. This method is not only highly scalable but also extremely cost-effective.
+Of course. Here is a comprehensive `README.md` file that captures all the information for setting up the automated malware analysis pipeline.
 
-Here is the updated, step-by-step guide to creating this advanced Jenkins pipeline.
+-----
 
-Core Concepts and New Workflow
-The fundamental principle of isolating and destroying the analysis environment remains, but the tools change significantly:
+# Automated Malware Sandbox Analysis with Jenkins, Prisma Cloud, and AWS EC2 Spot Instances
 
-Analysis Engine: We will replace the external WildFire API with Prisma Cloud's twistcli, a powerful command-line tool that can directly analyze files in a sandbox environment provided by the Prisma Cloud platform.
+This guide details how to build a scalable, cost-effective, and secure pipeline for automated malware analysis. It leverages the power of Jenkins for orchestration, Prisma Cloud's `twistcli` for advanced sandbox analysis, and AWS EC2 Spot Instances for ephemeral, low-cost compute environments.
 
-Compute Environment: Instead of a local Vagrant VM, we will use AWS EC2 Spot Instances. These are spare EC2 capacity offered at a significant discount, perfect for our short-lived, fault-tolerant analysis tasks. Jenkins will automatically provision and terminate these instances for us.
+## Overview
 
-The new workflow looks like this:
+The primary goal of this pipeline is to automate the process of analyzing suspicious files in a safe, isolated environment. Instead of maintaining dedicated analysis machines, this solution dynamically provisions a fresh EC2 Spot Instance for each analysis run. Jenkins orchestrates the entire workflow, from creating the instance to running the scan and processing the results. Upon completion, the instance is automatically destroyed, ensuring a clean slate for every analysis and minimizing costs.
 
-Secure Credential Storage: Store AWS and Prisma Cloud credentials in the Jenkins Credential Manager.
+### Core Workflow
 
-Dynamic Agent Provisioning: The Jenkins pipeline requests a build agent. The Jenkins EC2 plugin intercepts this request and provisions a new EC2 Spot Instance based on a pre-defined template.
+1.  **Trigger:** A Jenkins pipeline job is started.
+2.  **Provision:** Jenkins, via the EC2 Plugin, requests a new build agent. This action provisions a fresh EC2 Spot Instance from a predefined template.
+3.  **Execute:** Once the instance is ready, the pipeline runs on it:
+      * It checks out the source code, including the file to be analyzed.
+      * It securely downloads the `twistcli` utility from your Prisma Cloud Console.
+      * It executes `twistcli sandbox <file>`, which uploads the sample to Prisma Cloud's backend for detonation and analysis.
+4.  **Report:** The pipeline retrieves the JSON analysis report from `twistcli`, parses the verdict, and archives the report.
+5.  **Destroy:** As soon as the job finishes, the Jenkins EC2 Plugin automatically terminates the Spot Instance, ensuring you only pay for the compute time you use and that the contaminated environment is securely destroyed.
 
-Analysis Execution: Once the Spot Instance is online and connected as a Jenkins agent, the pipeline:
-a. Checks out the repository containing the malware sample.
-b. Downloads the twistcli binary from your Prisma Cloud Console.
-c. Executes the twistcli sandbox command, passing the malware sample to it. The tool securely uploads the file to the Prisma Cloud backend for sandboxed detonation and analysis.
+-----
 
-Process Results: twistcli outputs a detailed JSON report. The pipeline parses this report to determine the verdict (e.g., malware, suspicious, benign) and takes action, such as failing the build if malware is detected.
+## Prerequisites
 
-Automatic Teardown: Once the pipeline job is complete, the Jenkins EC2 plugin automatically terminates the Spot Instance. This ensures you only pay for the exact time used and that the contaminated environment is destroyed.
+Before you begin, ensure you have the following:
 
-Prerequisites
-Prisma Cloud Compute Edition: You need an active subscription and credentials (Access Key, Secret Key, and Console URL).
+  * **Prisma Cloud Compute Edition:** An active subscription with API access.
+      * Prisma Cloud Console URL
+      * Prisma Cloud Access Key
+      * Prisma Cloud Secret Key
+  * **AWS Account:** An AWS account with an IAM user or role that has permissions to create and manage EC2 instances.
+      * AWS Access Key ID
+      * AWS Secret Access Key
+  * **Jenkins Server:** A running Jenkins instance with administrator access.
+  * **Required Jenkins Plugins:**
+      * **[Amazon EC2 Plugin](https://plugins.jenkins.io/ec2/)**
 
-AWS Account: With an IAM user or role that has permissions to manage EC2 instances.
+-----
 
-Jenkins Server: With the EC2 Plugin installed.
+## Configuration Steps
 
-Step-by-Step Implementation
-Step 1: Configure the Jenkins EC2 Plugin
-This is the most critical setup step and is done in the Jenkins UI, not the Jenkinsfile.
+### Step 1: Configure the Jenkins EC2 Plugin
 
-Add AWS Credentials:
+This setup connects Jenkins to your AWS account, allowing it to dynamically create agents.
 
-Go to Manage Jenkins > Credentials.
+1.  **Add AWS Credentials to Jenkins:**
 
-Add a new AWS Credentials type.
+      * Navigate to **Manage Jenkins \> Credentials**.
+      * Add a new credential of the **AWS Credentials** kind.
+      * Enter the **Access Key ID** and **Secret Access Key** for your AWS IAM user.
+      * Set the ID to `aws-ec2-credentials`.
 
-Provide the Access Key ID and Secret Access Key of your IAM user.
+2.  **Configure the EC2 Cloud:**
 
-Give it a descriptive ID like aws-ec2-credentials.
+      * Navigate to **Manage Jenkins \> Clouds**.
+      * Click **Add a new cloud** and select **Amazon EC2**.
+      * Fill in the cloud details:
+          * **AWS Credentials:** Select the `aws-ec2-credentials` you just created.
+          * **AWS Region:** Choose the region where you want to launch instances (e.g., `us-east-1`).
+      * Under **AMIs**, click **Add AMI** to create an agent template:
+          * **AMI ID:** Provide a recent Amazon Linux 2 or Ubuntu AMI ID (e.g., `ami-0c55b159cbfafe1f0`).
+          * **Instance Type:** Choose a suitable type (e.g., `t3.medium`).
+          * **Security group(s):** Assign a security group that allows inbound SSH from your Jenkins controller and necessary outbound access to the internet.
+          * **Labels:** Assign a unique label that your `Jenkinsfile` will reference. For example: `ec2-spot-sandbox`.
+          * Click **Advanced...** to configure Spot settings:
+              * Check the **Use Spot instance** box.
+              * You can leave the **Spot max bid price** blank to bid the current On-Demand price, which is the recommended practice.
+          * Ensure the **Remote FS root**, **User**, and **SSH key** settings are appropriate for your chosen AMI.
+      * **Save** the configuration.
 
-Configure the EC2 Cloud:
+### Step 2: Store Prisma Cloud Credentials in Jenkins
 
-Go to Manage Jenkins > Clouds.
+Securely store your Prisma Cloud credentials for the pipeline to use.
 
-Click Add a new cloud and select Amazon EC2.
+1.  **Add Prisma API Keys:**
 
-In the cloud configuration:
+      * Navigate to **Manage Jenkins \> Credentials**.
+      * Add a new credential of the **Username with password** kind.
+      * **Username:** Enter your Prisma Cloud Access Key.
+      * **Password:** Enter your Prisma Cloud Secret Key.
+      * **ID:** Set the ID to `prisma-cloud-credentials`.
 
-AWS Credentials: Select the aws-ec2-credentials you just created.
+2.  **Add Prisma Console URL:**
 
-AWS Region: Choose the region where you want to launch the instances (e.g., us-east-1).
+      * Add another credential, this time of the **String** kind.
+      * **Secret:** Enter the full URL to your Prisma Cloud Console (e.g., `https://us-east1.cloud.twistlock.com/my-company`).
+      * **ID:** Set the ID to `prisma-console-url`.
 
-Click Add AMI. This defines the template for your analysis agents.
+-----
 
-AMI ID: Use a recent Amazon Linux 2 or Ubuntu AMI ID (e.g., ami-0c55b159cbfafe1f0).
+## Benefits of this Approach
 
-Instance Type: Choose a suitable type, like t3.medium.
-
-Security group(s): Use a security group that allows inbound SSH (TCP/22) from your Jenkins controller's IP address and blocks all other inbound traffic. Outbound traffic to the internet (for downloading twistcli and connecting to Prisma Cloud) should be allowed.
-
-Labels: Assign a unique label, like ec2-spot-sandbox. The Jenkinsfile will use this label to request an agent from this template.
-
-Advanced Settings: This is where you enable Spot Instances.
-
-Check the Use Spot instance box.
-
-Set a Spot max bid price. You can leave this blank to bid the On-Demand price, which is generally recommended.
-
-Save the configuration.
-
-Step 2: Store Prisma Cloud Credentials in Jenkins
-Go to Manage Jenkins > Credentials.
-
-Add new credentials with the Username with password kind.
-
-Username: Enter your Prisma Cloud Access Key.
-
-Password: Enter your Prisma Cloud Secret Key.
-
-ID: Give it a descriptive ID, like prisma-cloud-credentials.
-
-Add another credential of kind String.
-
-Secret: Enter the full URL to your Prisma Cloud Console (e.g., https://us-east1.cloud.twistlock.com/my-company).
-
-ID: Give it an ID like prisma-console-url.
-
-Step 3: Create the Jenkinsfile
-This declarative pipeline script automates the analysis on the dynamically provisioned Spot Instance.
-
-
-------------------------------------------------------------------------------------------------------------------------------
-Security & Cost-Efficiency Summary
-Cost: By using EC2 Spot Instances, you are running your analysis on compute capacity that can be up to 90% cheaper than On-Demand rates. Since the task is short-lived, the risk of a Spot interruption is minimal and acceptable.
-
-Security: The environment is maximally isolated. Each analysis runs on a brand new, clean OS. After the job, the instance is terminated, completely destroying any trace of the malware sample or its execution. IAM roles and security groups provide further layers of protection at the AWS level.
-
-Scalability: The Jenkins EC2 plugin can be configured to spin up multiple agents in parallel, allowing you to run hundreds of analyses simultaneously without managing any fixed infrastructure.
+  * **Cost-Efficiency:** EC2 Spot Instances offer discounts of up to 90% over On-Demand prices, making this solution incredibly cheap to run.
+  * **Maximum Security:** Each analysis runs in a completely new, isolated environment. The instance is destroyed after use, eliminating any risk of cross-contamination or persistent threats.
+  * **Scalability:** Jenkins can provision dozens of agents concurrently, allowing you to build a high-throughput analysis capability without managing a fixed pool of machines.
+  * **Zero Maintenance:** The entire analysis environment is ephemeral and defined as code. There are no dedicated servers to patch or maintain.
