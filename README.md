@@ -1,7 +1,4 @@
 # prisma-cloud-twistcli-sandbox
-Of course. Here is a comprehensive `README.md` file that captures all the information for setting up the automated malware analysis pipeline.
-
------
 
 # Automated Malware Sandbox Analysis with Jenkins, Prisma Cloud, and AWS EC2 Spot Instances
 
